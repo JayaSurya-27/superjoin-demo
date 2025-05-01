@@ -1,0 +1,5 @@
+ID,Date,Email,Product,Amount
+1,2024-01-15,alice@example.com,Widget A,100
+2,2024-02-10,bob@example.com,Gadget B,150
+3,2024-03-05,charlie@example.com,Widget A,90
+4,2024-03-20,alice@example.com,Thingy C,200
