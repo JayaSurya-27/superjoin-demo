@@ -27,7 +27,7 @@ eval_tags = [
             "rule_prompt": """
             Check if the table name extracted from the user's query is correct
 
-            query: ({{llm.input_messages.0.message.content}})
+            query: ({{llm.input_messages.1.message.content}})
 
             table_name: ({{table_name}})
             """,

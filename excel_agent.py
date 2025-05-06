@@ -15,7 +15,7 @@ from opentelemetry import trace
 
 
 trace_provider = register(
-    project_name="excel-agent-llm-eval",
+    project_name="excel-agent-demo-1",
     project_type=ProjectType.EXPERIMENT,
     eval_tags=eval_tags
 )
@@ -216,7 +216,8 @@ def identify_table_name(user_query):
                 }
                 response = client.chat.completions.create(**args)
 
-                table_name = response.choices[0].message.content.strip().lower()
+                # response.choices[0].message.content = "sales_q2"
+                table_name = response.choices[0].message.content.strip().lower()   
 
                 # Set LLM input/output attributes
                 llm_span.set_attribute("llm.input_messages.0.message.role", "system")
@@ -486,27 +487,27 @@ def run_interactive_mode():
                     if not user_input.strip():
                         continue
                     
-                    with tracer.start_as_current_span(
-                        "process_user_input",
-                         attributes={SpanAttributes.FI_SPAN_KIND: FiSpanKindValues.CHAIN.value}
-                    ) as input_span:
-                        input_span.set_attribute(SpanAttributes.RAW_INPUT, user_input)
-                        input_span.set_attribute(SpanAttributes.INPUT_VALUE, user_input)
-                        input_span.set_attribute("user_input", user_input)
-                        formula = process_query(user_input)
-                        
-                        if formula.startswith("ERROR:"):
-                            print(f"\n❌ {formula}")
-                            input_span.set_attribute(SpanAttributes.RAW_OUTPUT, json.dumps(formula))
-                            input_span.set_attribute(SpanAttributes.OUTPUT_VALUE, json.dumps(formula))
-                        else:
-                            print(f"\n✅ Generated Formula: {formula}")
-                            input_span.set_attribute(SpanAttributes.RAW_OUTPUT, json.dumps(formula))
-                            input_span.set_attribute(SpanAttributes.OUTPUT_VALUE, json.dumps(formula))
-                        session_queries.append({"query": user_input, "formula": formula})
-                        input_span.set_attribute(SpanAttributes.RAW_OUTPUT, json.dumps(formula))
-                        input_span.set_attribute(SpanAttributes.OUTPUT_VALUE, json.dumps(formula))
-                        input_span.set_attribute("formula", formula)
+                    # with tracer.start_as_current_span(
+                    #     "process_user_input",
+                    #      attributes={SpanAttributes.FI_SPAN_KIND: FiSpanKindValues.CHAIN.value}
+                    # ) as input_span:
+                    # input_span.set_attribute(SpanAttributes.RAW_INPUT, user_input)
+                    # input_span.set_attribute(SpanAttributes.INPUT_VALUE, user_input)
+                    # input_span.set_attribute("user_input", user_input)
+                    formula = process_query(user_input)
+                    
+                    if formula.startswith("ERROR:"):
+                        print(f"\n❌ {formula}")
+                        # input_span.set_attribute(SpanAttributes.RAW_OUTPUT, json.dumps(formula))
+                        # input_span.set_attribute(SpanAttributes.OUTPUT_VALUE, json.dumps(formula))
+                    else:
+                        print(f"\n✅ Generated Formula: {formula}")
+                        # input_span.set_attribute(SpanAttributes.RAW_OUTPUT, json.dumps(formula))
+                        # input_span.set_attribute(SpanAttributes.OUTPUT_VALUE, json.dumps(formula))
+                    session_queries.append({"query": user_input, "formula": formula})
+                    # input_span.set_attribute(SpanAttributes.RAW_OUTPUT, json.dumps(formula))
+                    # input_span.set_attribute(SpanAttributes.OUTPUT_VALUE, json.dumps(formula))
+                    # input_span.set_attribute("formula", formula)
                     
                 except EOFError:
                     # Handle Ctrl+D
