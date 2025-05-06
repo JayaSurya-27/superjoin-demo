@@ -1,26 +1,28 @@
 import json
 import os
+from dotenv import load_dotenv
+load_dotenv()
+
 import argparse
 from anyio import Path
 import pandas as pd
 from openai import OpenAI
-from dotenv import load_dotenv
 from fi_instrumentation import register
 from fi_instrumentation.fi_types import ProjectType, SpanAttributes, FiSpanKindValues
 from excel_agent_eval_tags import eval_tags
 from opentelemetry import trace
 
 
-load_dotenv()
 
 trace_provider = register(
-    project_name="excel-agent",
+    project_name="excel-agent-llm-eval",
     project_type=ProjectType.EXPERIMENT,
     eval_tags=eval_tags
 )
-
 trace.set_tracer_provider(trace_provider)
+
 tracer = trace.get_tracer(__name__)
+
 
 
 
@@ -43,10 +45,12 @@ def load_sample_data(filepath):
         try:
             span.set_attribute("file_path", filepath)
             span.set_attribute(SpanAttributes.RAW_INPUT, filepath)
+            span.set_attribute(SpanAttributes.INPUT_VALUE, filepath)
             data = pd.read_csv(filepath)
             span.set_attribute("row_count", len(data))
             span.set_attribute("columns", str(data.columns.tolist()))
             span.set_attribute(SpanAttributes.RAW_OUTPUT, json.dumps(data.head(3).to_dict()))
+            span.set_attribute(SpanAttributes.OUTPUT_VALUE, json.dumps(data.head(3).to_dict()))
             return data
         except Exception as e:
             print(f"Warning: Couldn't load sample data from {filepath}: {e}")
@@ -64,10 +68,12 @@ def get_table_data(table_name):
             file_path = AVAILABLE_DATA_FILES[table_name.lower()]
             data = load_sample_data(file_path)
             span.set_attribute(SpanAttributes.RAW_INPUT, file_path)
+            span.set_attribute(SpanAttributes.INPUT_VALUE, file_path)
             if data is not None:
                 span.set_attribute("row_count", len(data))
                 span.set_attribute("columns", str(data.columns.tolist()))
                 span.set_attribute(SpanAttributes.RAW_OUTPUT, json.dumps(data.head(3).to_dict()))
+                span.set_attribute(SpanAttributes.OUTPUT_VALUE, json.dumps(data.head(3).to_dict()))
             span.set_attribute("file_path", file_path)
             return data, file_path
         else:
@@ -102,10 +108,16 @@ def set_formula_cell_value(sheet_name, cell_reference, formula):
             "cell_reference": cell_reference,
             "formula": formula
         }))
+        span.set_attribute(SpanAttributes.INPUT_VALUE, json.dumps({
+            "sheet_name": sheet_name,
+            "cell_reference": cell_reference,
+            "formula": formula
+        }))
         span.set_attribute("sheet_name", sheet_name)
         span.set_attribute("cell_reference", cell_reference)
         span.set_attribute("formula", formula)
         span.set_attribute(SpanAttributes.RAW_OUTPUT, f"Formula set in {sheet_name}!{cell_reference}")
+        span.set_attribute(SpanAttributes.OUTPUT_VALUE, f"Formula set in {sheet_name}!{cell_reference}")
         return f"Formula set in {sheet_name}!{cell_reference}"
 
 def execute_apps_script(code_string, action_title="Execute Apps Script"):
@@ -131,9 +143,14 @@ def execute_apps_script(code_string, action_title="Execute Apps Script"):
             "code_string": code_string,
             "action_title": action_title
         }))
+        span.set_attribute(SpanAttributes.INPUT_VALUE, json.dumps({
+            "code_string": code_string,
+            "action_title": action_title
+        }))
         span.set_attribute("code_string", code_string)
         span.set_attribute("action_title", action_title)
         span.set_attribute(SpanAttributes.RAW_OUTPUT, f"Executed: {action_title}")
+        span.set_attribute(SpanAttributes.OUTPUT_VALUE, f"Executed: {action_title}")
         return f"Executed: {action_title}"
 
 # --- Hardcoded Examples ---
@@ -170,6 +187,10 @@ def identify_table_name(user_query):
         available_tables = ", ".join(AVAILABLE_DATA_FILES.keys())
         parent_span.set_attribute("available_tables", available_tables)
         parent_span.set_attribute(SpanAttributes.RAW_INPUT, json.dumps({
+            "user_query": user_query,
+            "available_tables": available_tables
+        }))
+        parent_span.set_attribute(SpanAttributes.INPUT_VALUE, json.dumps({
             "user_query": user_query,
             "available_tables": available_tables
         }))
@@ -210,27 +231,33 @@ def identify_table_name(user_query):
                 llm_span.set_attribute(SpanAttributes.LLM_PROVIDER, "openai")
 
                 llm_span.set_attribute(SpanAttributes.RAW_OUTPUT, json.dumps(response.model_dump()))
+                llm_span.set_attribute(SpanAttributes.OUTPUT_VALUE, json.dumps(response.model_dump()))
                 llm_span.set_attribute(SpanAttributes.RAW_INPUT, json.dumps({k: v for k, v in args.items() if k != "client"}))
+                llm_span.set_attribute(SpanAttributes.INPUT_VALUE, json.dumps({k: v for k, v in args.items() if k != "client"}))
                 llm_span.set_attribute("table_name", table_name)
 
             # Check if the response is valid
             parent_span.set_attribute("table_name", table_name)
             if table_name == 'none':
                 parent_span.set_attribute(SpanAttributes.RAW_OUTPUT, 'No table name was mentioned in your query. Please specify which table you want to analyze.')
+                parent_span.set_attribute(SpanAttributes.OUTPUT_VALUE, 'No table name was mentioned in your query. Please specify which table you want to analyze.')
                 parent_span.set_attribute("error", "No table name was mentioned in your query. Please specify which table you want to analyze.")
                 return None, "ERROR: No table name was mentioned in your query. Please specify which table you want to analyze."
             
             if table_name in AVAILABLE_DATA_FILES:
                 parent_span.set_attribute(SpanAttributes.RAW_OUTPUT, table_name)
+                parent_span.set_attribute(SpanAttributes.OUTPUT_VALUE, table_name)
                 return table_name, None
             else:
                 parent_span.set_attribute(SpanAttributes.RAW_OUTPUT, f"ERROR: The identified table '{table_name}' is not available. Available tables are: {available_tables}")
                 parent_span.add_event("Table name not found", attributes={"table_name": table_name})
+                parent_span.set_attribute(SpanAttributes.OUTPUT_VALUE, f"ERROR: The identified table '{table_name}' is not available. Available tables are: {available_tables}")
                 return None, f"ERROR: The identified table '{table_name}' is not available. Available tables are: {available_tables}"
                 
         except Exception as e:
             parent_span.set_attribute(SpanAttributes.RAW_OUTPUT, f"ERROR: Could not identify table name: {e}")
             parent_span.add_event("Error identifying table name", attributes={"error": str(e)})
+            parent_span.set_attribute(SpanAttributes.OUTPUT_VALUE, f"ERROR: Could not identify table name: {e}")
             return None, f"ERROR: Could not identify table name: {e}"
 
 def generate_excel_formula(user_query, table_data, table_name):
@@ -244,18 +271,24 @@ def generate_excel_formula(user_query, table_data, table_name):
             "user_query": user_query,
             "table_name": table_name
         }))
+        span.set_attribute(SpanAttributes.INPUT_VALUE, json.dumps({
+            "user_query": user_query,
+            "table_name": table_name
+        }))
         span.set_attribute("user_query", user_query)
         span.set_attribute("table_name", table_name)
         
         if not client:
             error_msg = "ERROR: OpenAI client not initialized. Cannot generate formula."
             span.set_attribute(SpanAttributes.RAW_OUTPUT, error_msg)
+            span.set_attribute(SpanAttributes.OUTPUT_VALUE, error_msg)
             span.add_event("Error generating formula", attributes={"error": error_msg})
             return error_msg
 
         if table_data is None:
             error_msg = "ERROR: No data available for the specified table."
             span.set_attribute(SpanAttributes.RAW_OUTPUT, error_msg)
+            span.set_attribute(SpanAttributes.OUTPUT_VALUE, error_msg)
             span.add_event("Error generating formula", attributes={"error": error_msg})
             return error_msg
         
@@ -324,7 +357,9 @@ Sample data (first 3 rows): {table_data.head(3).to_dict()}
                 # Fix: Convert response and args to JSON strings for raw input/output
                 import json
                 llm_span.set_attribute(SpanAttributes.RAW_OUTPUT, json.dumps(response.model_dump()))
+                llm_span.set_attribute(SpanAttributes.OUTPUT_VALUE, json.dumps(response.model_dump()))
                 llm_span.set_attribute(SpanAttributes.RAW_INPUT, json.dumps({k: v for k, v in args.items() if k != "client"}))
+                llm_span.set_attribute(SpanAttributes.INPUT_VALUE, json.dumps({k: v for k, v in args.items() if k != "client"}))
                 llm_span.set_attribute("formula", formula)
             
             # Simple validation - ensure it looks like a formula
@@ -333,10 +368,12 @@ Sample data (first 3 rows): {table_data.head(3).to_dict()}
             
             span.set_attribute("formula", formula)
             span.set_attribute(SpanAttributes.RAW_OUTPUT, json.dumps(formula))
+            span.set_attribute(SpanAttributes.OUTPUT_VALUE, json.dumps(formula))
             return formula
         except Exception as e:
             error_msg = f"ERROR: Could not generate formula: {e}"
             span.set_attribute(SpanAttributes.RAW_OUTPUT, error_msg)
+            span.set_attribute(SpanAttributes.OUTPUT_VALUE, error_msg)
             span.add_event("Error generating formula", attributes={"error": error_msg})
             return error_msg
 
@@ -351,7 +388,6 @@ def process_query(user_query):
         span.set_attribute("user_query", user_query)
         span.set_attribute(SpanAttributes.INPUT_VALUE, user_query)
         span.set_attribute(SpanAttributes.RAW_INPUT, user_query)
-        
         # Step 1: Identify which table the user is referring to
         print("Step 1: Identifying table name mentioned in query...")
         table_name, error = identify_table_name(user_query)
@@ -455,18 +491,21 @@ def run_interactive_mode():
                          attributes={SpanAttributes.FI_SPAN_KIND: FiSpanKindValues.CHAIN.value}
                     ) as input_span:
                         input_span.set_attribute(SpanAttributes.RAW_INPUT, user_input)
+                        input_span.set_attribute(SpanAttributes.INPUT_VALUE, user_input)
                         input_span.set_attribute("user_input", user_input)
                         formula = process_query(user_input)
                         
                         if formula.startswith("ERROR:"):
                             print(f"\n❌ {formula}")
                             input_span.set_attribute(SpanAttributes.RAW_OUTPUT, json.dumps(formula))
+                            input_span.set_attribute(SpanAttributes.OUTPUT_VALUE, json.dumps(formula))
                         else:
                             print(f"\n✅ Generated Formula: {formula}")
                             input_span.set_attribute(SpanAttributes.RAW_OUTPUT, json.dumps(formula))
-
+                            input_span.set_attribute(SpanAttributes.OUTPUT_VALUE, json.dumps(formula))
                         session_queries.append({"query": user_input, "formula": formula})
                         input_span.set_attribute(SpanAttributes.RAW_OUTPUT, json.dumps(formula))
+                        input_span.set_attribute(SpanAttributes.OUTPUT_VALUE, json.dumps(formula))
                         input_span.set_attribute("formula", formula)
                     
                 except EOFError:
